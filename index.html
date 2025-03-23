@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>방향 고정 귀여운 비행기 시뮬레이터</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: right;
+            font-family: Arial, sans-serif;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            font-family: Arial, sans-serif;
+        }
+        #score-popup {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: lime;
+            font-size: 48px;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.5s;
+            font-family: Arial, sans-serif;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            text-align: center;
+            font-family: Arial, sans-serif;
+            text-shadow: 2px 2px 4px #000;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+        #minimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 200px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        #landing-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            display: none;
+        }
+        .landing-good {
+            color: #00ff00;
+        }
+        .landing-warning {
+            color: #ffff00;
+        }
+        .landing-danger {
+            color: #ff0000;
+        }
+        #flight-mode {
+            position: absolute;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        #flight-mode button {
+            display: block;
+            margin: 5px 0;
+            padding: 8px;
+            width: 100%;
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #flight-mode button.active {
+            background-color: #34A853;
+        }
+        #flight-mode button:hover {
+            background-color: #5295F5;
+        }
+    </style>
+    <!-- Three.js 라이브러리 포함 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="info">
+        <div>속도: <span id="speed">100</span> km/h</div>
+        <div>고도: <span id="altitude">100</span> m</div>
+        <div>피치: <span id="pitch">0</span>°</div>
+        <div>롤: <span id="roll">0</span>°</div>
+        <div>점수: <span id="score">0</span></div>
+        <div id="landing-status"></div>
+    </div>
+    
+    <div id="controls">
+        <h3>조종 방법:</h3>
+        <p>W - 기수 올림</p>
+        <p>S - 기수 내림</p>
+        <p>A - 좌측 롤</p>
+        <p>D - 우측 롤</p>
+        <p>스페이스바 - 가속/감속</p>
+        <p>B - 브레이크 (착륙 후)</p>
+        <p>L - 방향 고정 모드 전환</p>
+    </div>
+    
+    <div id="flight-mode">
+        <h3>비행 모드</h3>
+        <button id="free-mode" class="active">자유 비행</button>
+        <button id="fixed-mode">방향 고정</button>
+        <button id="autopilot-mode">자동 착륙</button>
+    </div>
+    
+    <div id="landing-info">
+        <h3>착륙 정보</h3>
+        <div>활주로까지: <span id="runway-distance">0</span> m</div>
+        <div>착륙 속도: <span id="landing-speed" class="landing-good">0</span> km/h</div>
+        <div>착륙 각도: <span id="landing-angle" class="landing-good">0</span>°</div>
+        <div>활주로 정렬: <span id="runway-alignment" class="landing-good">양호</span></div>
+    </div>
+    
+    <div id="loading">로딩 중...</div>
+    <div id="score-popup">+1</div>
+    <div id="message"></div>
+    <div id="minimap"></div>
+
+    <script>
+        // 디버깅 메시지
+        console.log('스크립트 시작');
+        
+        // 전역 변수
+        let scene, camera, renderer;
+        let airplane, propeller;
+        let terrain;
+        let obstacles = [];
+        let clouds = [];
+        let trees = [];
+        let mountains = [];
+        let runway;
+        let runwayMarkings = [];
+        let score = 0;
+        let clock = new THREE.Clock();
+        let lastTime = 0;
+        
+        // 미니맵 변수
+        let minimapCamera, minimapRenderer;
+        
+        // 착륙 상태
+        let landingState = {
+            isLanded: false,
+            touchdownSpeed: 0,
+            touchdownPitch: 0,
+            touchdownRoll: 0,
+            landingQuality: '', // 'perfect', 'good', 'acceptable', 'poor', 'crash'
+            brakesApplied: false,
+            groundSpeed: 0,
+            distanceTraveled: 0
+        };
+        
+        // 비행 모드
+        const flightModes = {
+            FREE: 'free',      // 자유 비행 모드
+            FIXED: 'fixed',    // 방향 고정 모드
+            AUTOPILOT: 'auto'  // 자동 착륙 모드
+        };
+        
+        // 비행기 상태
+        const airplaneState = {
+            position: new THREE.Vector3(0, 100, -1000), // 활주로 근처에서 시작
+            rotation: new THREE.Euler(0, 0, 0),
+            speed: 100,  // 기본 속도 100으로 설정
+            pitch: 0,
+            roll: 0,
+            yaw: 0,
+            onGround: false,
+            taxiing: false,
+            scale: 0.7,  // 비행기 크기 축소 (0.7배)
+            flightMode: flightModes.FREE,  // 기본 모드: 자유 비행
+            targetPitch: 0,  // 목표 피치 (방향 고정 모드)
+            targetRoll: 0,   // 목표 롤 (방향 고정 모드)
+            targetYaw: 0,    // 목표 요 (방향 고정 모드)
+            fixedDirection: new THREE.Vector3(0, 0, 1),  // 고정된 방향 벡터
+            lastInputTime: 0  // 마지막 입력 시간
+        };
+        
+        // 키 상태
+        const keys = {
+            w: false,
+            a: false,
+            s: false,
+            d: false,
+            space: false,
+            b: false,  // 브레이크 (착륙 후 사용)
+            l: false   // 방향 고정 모드 전환
+        };
+        
+        // 초기화 및 애니메이션
+        init();
+        animate();
+        
+        // 초기화 함수
+        function init() {
+            console.log('초기화 시작');
+            
+            // 장면 생성
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.Fog(0x87CEEB, 1000, 10000);
+            
+            // 카메라 생성
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 20000);
+            camera.position.set(0, 100, -200);
+            
+            // 렌더러 생성
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            
+            // 미니맵 설정
+            setupMinimap();
+            
+            // 조명 설정
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 300, 100);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.left = -2000;
+            directionalLight.shadow.camera.right = 2000;
+            directionalLight.shadow.camera.top = 2000;
+            directionalLight.shadow.camera.bottom = -2000;
+            directionalLight.shadow.camera.far = 5000;
+            scene.add(directionalLight);
+            
+            // 확장된 지형 생성
+            createTerrain();
+            
+            // 활주로 생성
+            createRunway();
+            
+            // 산 생성
+            createMountains();
+            
+            // 나무 생성
+            createTrees();
+            
+            // 개선된 비행기 생성
+            createAirplane();
+            
+            // 장애물 생성 (더 많은 장애물)
+            createObstacles();
+            
+            // 구름 생성 (더 많은 구름)
+            createClouds();
+            
+            // 이벤트 리스너 설정
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            
+            // 비행 모드 버튼 이벤트 리스너
+            document.getElementById('free-mode').addEventListener('click', () => setFlightMode(flightModes.FREE));
+            document.getElementById('fixed-mode').addEventListener('click', () => setFlightMode(flightModes.FIXED));
+            document.getElementById('autopilot-mode').addEventListener('click', () => setFlightMode(flightModes.AUTOPILOT));
+            
+            // 로딩 완료
+            document.getElementById('loading').style.display = 'none';
+            
+            // 착륙 정보 표시
+            document.getElementById('landing-info').style.display = 'block';
+            
+            console.log('초기화 완료');
+        }
+        
+        // 비행 모드 설정
+        function setFlightMode(mode) {
+            // 이전 모드 버튼 비활성화
+            document.getElementById('free-mode').classList.remove('active');
+            document.getElementById('fixed-mode').classList.remove('active');
+            document.getElementById('autopilot-mode').classList.remove('active');
+            
+            // 새 모드 설정
+            airplaneState.flightMode = mode;
+            
+            // 방향 고정 모드로 전환 시 현재 방향 저장
+            if (mode === flightModes.FIXED) {
+                // 현재 방향 벡터 저장
+                airplaneState.fixedDirection = new THREE.Vector3(0, 0, 1);
+                airplaneState.fixedDirection.applyQuaternion(airplane.quaternion);
+                
+                // 현재 회전값 저장
+                airplaneState.targetPitch = airplaneState.pitch;
+                airplaneState.targetRoll = airplaneState.roll;
+                airplaneState.targetYaw = airplaneState.yaw;
+                
+                showMessage("방향 고정 모드", 2000);
+            } else if (mode === flightModes.FREE) {
+                showMessage("자유 비행 모드", 2000);
+            } else if (mode === flightModes.AUTOPILOT) {
+                // 자동 착륙 모드 시작
+                startAutopilot();
+            }
+            
+            // 해당 모드 버튼 활성화
+            if (mode === flightModes.FREE) {
+                document.getElementById('free-mode').classList.add('active');
+            } else if (mode === flightModes.FIXED) {
+                document.getElementById('fixed-mode').classList.add('active');
+            } else if (mode === flightModes.AUTOPILOT) {
+                document.getElementById('autopilot-mode').classList.add('active');
+            }
+        }
+        
+        // 자동 착륙 시작
+        function startAutopilot() {
+            // 자동 착륙을 위한 초기 설정
+            showMessage("자동 착륙 모드 활성화", 3000);
+            
+            // 활주로 방향으로 비행기 회전
+            const runwayDirection = new THREE.Vector3(0, 0, -1);
+            
+            // 현재 방향에서 활주로 방향으로 부드럽게 전환하기 위한 설정
+            airplaneState.targetYaw = 0;  // 활주로 방향 (z축 음의 방향)
+            airplaneState.targetPitch = 0;
+            airplaneState.targetRoll = 0;
+        }
+        
+        // 미니맵 설정
+        function setupMinimap() {
+            minimapCamera = new THREE.OrthographicCamera(
+                -1000, 1000, 1000, -1000, 1, 20000
+            );
+            minimapCamera.position.set(0, 5000, 0);
+            minimapCamera.lookAt(0, 0, 0);
+            
+            minimapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            minimapRenderer.setSize(200, 200);
+            minimapRenderer.domElement.style.position = 'absolute';
+            minimapRenderer.domElement.style.bottom = '20px';
+            minimapRenderer.domElement.style.right = '20px';
+            document.getElementById('minimap').appendChild(minimapRenderer.domElement);
+        }
+        
+        // 지형 생성 (확장 및 더 복잡한 지형)
+        function createTerrain() {
+            // 더 넓은 지형 메쉬 생성
+            const terrainSize = 15000;
+            const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 200, 200);
+            
+            // 지형에 더 복잡한 높낮이 추가
+            const positions = terrainGeometry.attributes.position.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const z = positions[i + 2];
+                
+                // 중심부는 활주로를 위해 평평하게
+                const distanceFromCenter = Math.sqrt(x * x + z * z);
+                
+                if (distanceFromCenter > 500) {
+                    // 산악지형 생성
+                    const height = Math.sin(x * 0.01) * Math.cos(z * 0.01) * 100;
+                    // 작은 언덕 추가
+                    const smallHills = Math.sin(x * 0.05) * Math.cos(z * 0.05) * 20;
+                    // 랜덤 노이즈 추가
+                    const noise = Math.random() * 10;
+                    
+                    positions[i + 1] = height + smallHills + noise;
+                    
+                    // 바깥쪽으로 갈수록 높아지는 산맥 추가
+                    if (distanceFromCenter > 5000) {
+                        positions[i + 1] += (distanceFromCenter - 5000) * 0.1;
+                    }
+                }
+            }
+            
+            terrainGeometry.computeVertexNormals();
+            
+            // 지형 재질 - 더 현실적인 색상
+            const terrainMaterial = new THREE.MeshStandardMaterial({
+                color: 0x3da35a,
+                flatShading: false,
+                metalness: 0,
+                roughness: 1
+            });
+            
+            terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+            terrain.rotation.x = -Math.PI / 2;
+            terrain.receiveShadow = true;
+            scene.add(terrain);
+            
+            // 더 넓은 바다 추가
+            const seaGeometry = new THREE.PlaneGeometry(50000, 50000);
+            const seaMaterial = new THREE.MeshStandardMaterial({
+                color: 0x0077be,
+                metalness: 0.2,
+                roughness: 0.5
+            });
+            
+            const sea = new THREE.Mesh(seaGeometry, seaMaterial);
+            sea.rotation.x = -Math.PI / 2;
+            sea.position.y = -20;
+            scene.add(sea);
+        }
+        
+        // 활주로 생성 (더 디테일한 착륙을 위한 활주로)
+        function createRunway() {
+            // 활주로 길이 및 너비
+            const runwayLength = 2000;
+            const runwayWidth = 50;
+            
+            // 주 활주로
+            const runwayGeometry = new THREE.PlaneGeometry(runwayWidth, runwayLength);
+            const runwayMaterial = new THREE.MeshStandardMaterial({
+                color: 0x333333,
+                roughness: 0.9
+            });
+            
+            runway = new THREE.Mesh(runwayGeometry, runwayMaterial);
+            runway.rotation.x = -Math.PI / 2;
+            runway.position.y = 1;  // 지형 위에 살짝 띄움
+            runway.receiveShadow = true;
+            scene.add(runway);
+            
+            // 활주로 마킹
+            createRunwayMarkings(runwayLength, runwayWidth);
+            
+            // 활주로 표시등
+            createRunwayLights(runwayLength, runwayWidth);
+        }
+        
+        // 활주로 마킹 생성
+        function createRunwayMarkings(length, width) {
+            // 중앙선
+            const centerLineGeometry = new THREE.PlaneGeometry(2, length * 0.8);
+            const centerLineMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff
+            });
+            
+            const centerLine = new THREE.Mesh(centerLineGeometry, centerLineMaterial);
+            centerLine.rotation.x = -Math.PI / 2;
+            centerLine.position.y = 1.1;
+            scene.add(centerLine);
+            runwayMarkings.push(centerLine);
+            
+            // 착륙 지점 표시
+            const touchdownMarkerGeometry = new THREE.PlaneGeometry(width * 0.8, 20);
+            const touchdownMarkerMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff
+            });
+            
+            // 시작점 마커
+            const startMarker = new THREE.Mesh(touchdownMarkerGeometry, touchdownMarkerMaterial);
+            startMarker.rotation.x = -Math.PI / 2;
+            startMarker.position.z = length / 2 - 100;
+            startMarker.position.y = 1.1;
+            scene.add(startMarker);
+            runwayMarkings.push(startMarker);
+            
+            // 종료점 마커
+            const endMarker = new THREE.Mesh(touchdownMarkerGeometry, touchdownMarkerMaterial);
+            endMarker.rotation.x = -Math.PI / 2;
+            endMarker.position.z = -length / 2 + 100;
+            endMarker.position.y = 1.1;
+            scene.add(endMarker);
+            runwayMarkings.push(endMarker);
+            
+            // 활주로 번호 (텍스처로 만들어야 하지만, 간단한 박스로 대체)
+            const numberGeometry = new THREE.PlaneGeometry(30, 20);
+            const numberMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff
+            });
+            
+            const number1 = new THREE.Mesh(numberGeometry, numberMaterial);
+            number1.rotation.x = -Math.PI / 2;
+            number1.position.z = length / 2 - 50;
+            number1.position.y = 1.1;
+            scene.add(number1);
+            runwayMarkings.push(number1);
+            
+            const number2 = new THREE.Mesh(numberGeometry, numberMaterial);
+            number2.rotation.x = -Math.PI / 2;
+            number2.position.z = -length / 2 + 50;
+            number2.position.y = 1.1;
+            scene.add(number2);
+            runwayMarkings.push(number2);
+        }
+        
+        // 활주로 표시등 생성
+        function createRunwayLights(length, width) {
+            // 활주로 가장자리 조명 배치
+            const lightSpacing = 50;
+            const numLights = Math.floor(length / lightSpacing);
+            const halfWidth = width / 2 + 2;
+            
+            for (let i = 0; i < numLights; i++) {
+                const z = length / 2 - i * lightSpacing;
+                
+                // 왼쪽 표시등
+                const leftLight = createRunwayLight(0xffffff);
+                leftLight.position.set(-halfWidth, 1, z);
+                scene.add(leftLight);
+                
+                // 오른쪽 표시등
+                const rightLight = createRunwayLight(0xffffff);
+                rightLight.position.set(halfWidth, 1, z);
+                scene.add(rightLight);
+            }
+            
+            // 착륙 접근 표시등
+            for (let i = 1; i <= 10; i++) {
+                const z = length / 2 + i * 50;
+                
+                // 접근 경로 표시등
+                const approachLight = createRunwayLight(0xff0000);
+                approachLight.position.set(0, 1 + i * 2, z);
+                scene.add(approachLight);
+            }
+        }
+        
+        // 활주로 표시등 생성
+        function createRunwayLight(color) {
+            const lightGeometry = new THREE.BoxGeometry(2, 0.5, 2);
+            const lightMaterial = new THREE.MeshBasicMaterial({
+                color: color,
+                emissive: color
+            });
+            
+            return new THREE.Mesh(lightGeometry, lightMaterial);
+        }
+        
+        // 산 생성
+        function createMountains() {
+            for (let i = 0; i < 30; i++) {
+                const mountainGeometry = new THREE.ConeGeometry(
+                    300 + Math.random() * 700,  // 반지름
+                    500 + Math.random() * 1500,  // 높이
+                    8 + Math.floor(Math.random() * 8)  // 세그먼트
+                );
+                
+                const mountainMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x555555,
+                    flatShading: true,
+                    roughness: 1
+                });
+                
+                const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
+                
+                // 산 위치 설정 (활주로 방향은 피하기)
+                let validPosition = false;
+                let angle, distance, x, z;
+                
+                while (!validPosition) {
+                    angle = Math.random() * Math.PI * 2;
+                    distance = 3000 + Math.random() * 8000;
+                    
+                    x = Math.cos(angle) * distance;
+                    z = Math.sin(angle) * distance;
+                    
+                    // 활주로 방향에서 멀리 떨어진 곳에 배치
+                    if (Math.abs(x) > 500 || Math.abs(z) > 1500) {
+                        validPosition = true;
+                    }
+                }
+                
+                mountain.position.x = x;
+                mountain.position.z = z;
+                mountain.position.y = mountain.geometry.parameters.height / 2 - 100;
+                
+                mountain.castShadow = true;
+                mountain.receiveShadow = true;
+                
+                scene.add(mountain);
+                mountains.push(mountain);
+            }
+        }
+        
+        // 나무 생성
+        function createTrees() {
+            for (let i = 0; i < 500; i++) {
+                // 나무 그룹
+                const tree = new THREE.Group();
+                
+                // 나무 줄기
+                const trunkGeometry = new THREE.CylinderGeometry(2, 3, 15, 8);
+                const trunkMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x8B4513,
+                    roughness: 0.9
+                });
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                trunk.position.y = 7.5;
+                trunk.castShadow = true;
+                tree.add(trunk);
+                
+                // 나무 잎 (더 둥글게)
+                const leavesGeometry = new THREE.SphereGeometry(10, 8, 8);
+                const leavesMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x2e8b57,
+                    roughness: 0.8
+                });
+                const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                leaves.position.y = 20;
+                leaves.castShadow = true;
+                tree.add(leaves);
+                
+                // 나무 위치 설정 (활주로 피하기)
+                let validPosition = false;
+                let x, z;
+                
+                while (!validPosition) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = 500 + Math.random() * 7000;
+                    
+                    x = Math.cos(angle) * distance;
+                    z = Math.sin(angle) * distance;
+                    
+                    // 활주로 주변은 피하기 (더 넓은 영역)
+                    if (Math.abs(x) > 200 || Math.abs(z) > 1200) {
+                        validPosition = true;
+                    }
+                }
+                
+                tree.position.set(x, 0, z);
+                
+                scene.add(tree);
+                trees.push(tree);
+            }
+        }
+        
+        // 귀여운 비행기 생성 (더 둥글고 작게)
+        function createAirplane() {
+            // 비행기 그룹
+            airplane = new THREE.Group();
+            
+            // 비행기 본체 (더 둥글게)
+            const bodyGeometry = new THREE.SphereGeometry(3, 16, 16);
+            bodyGeometry.scale(1, 0.7, 2);  // 타원형으로 변형
+            
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x4285F4,  // 파란색
+                metalness: 0.3,
+                roughness: 0.5
+            });
+            
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            airplane.add(body);
+            
+            // 조종석 유리창 (더 둥글게)
+            const cockpitGeometry = new THREE.SphereGeometry(1.5, 16, 16);
+            cockpitGeometry.scale(1, 1, 0.7);
+            
+        const cockpitMaterial = new THREE.MeshStandardMaterial({
+                color: 0x3333ff,
+                transparent: true,
+                opacity: 0.7,
+                metalness: 0.9,
+                roughness: 0.1
+            });
+            
+            const cockpit = new THREE.Mesh(cockpitGeometry, cockpitMaterial);
+            cockpit.position.y = 1;
+            cockpit.position.z = 2;
+            airplane.add(cockpit);
+            
+            // 날개 (둥근 모서리)
+            const wingGeometry = new THREE.BoxGeometry(20, 0.8, 4);
+            wingGeometry.translate(0, 0, 0);
+            
+            const wingMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xEA4335,  // 빨간색
+                metalness: 0.3,
+                roughness: 0.5
+            });
+            
+            const wings = new THREE.Mesh(wingGeometry, wingMaterial);
+            wings.position.y = 0;
+            wings.castShadow = true;
+            airplane.add(wings);
+            
+            // 꼬리 날개 (둥근 삼각형)
+            const tailGeometry = new THREE.ConeGeometry(2, 3, 4);
+            tailGeometry.rotateX(Math.PI / 2);
+            
+            const tailMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xEA4335,  // 빨간색
+                metalness: 0.3,
+                roughness: 0.5
+            });
+            
+            const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+            tail.rotation.z = Math.PI;
+            tail.position.z = -4;
+            tail.position.y = 1;
+            tail.castShadow = true;
+            airplane.add(tail);
+            
+            // 수직 꼬리 날개 (둥근 삼각형)
+            const verticalTailGeometry = new THREE.ConeGeometry(2, 4, 4);
+            verticalTailGeometry.rotateX(Math.PI);
+            
+            const verticalTail = new THREE.Mesh(verticalTailGeometry, tailMaterial);
+            verticalTail.position.z = -4;
+            verticalTail.position.y = 2;
+            verticalTail.castShadow = true;
+            airplane.add(verticalTail);
+            
+            // 프로펠러 허브
+            const hubGeometry = new THREE.SphereGeometry(0.7, 16, 16);
+            const hubMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const hub = new THREE.Mesh(hubGeometry, hubMaterial);
+            hub.position.z = 6;
+            airplane.add(hub);
+            
+            // 프로펠러 날
+            propeller = new THREE.Group();
+            const bladeGeometry = new THREE.BoxGeometry(0.5, 6, 0.3);
+            bladeGeometry.translate(0, 3, 0);
+            
+            const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x333333,
+                metalness: 0.5,
+                roughness: 0.5
+            });
+            
+            const blade1 = new THREE.Mesh(bladeGeometry, bladeMaterial);
+            propeller.add(blade1);
+            
+            const blade2 = new THREE.Mesh(bladeGeometry.clone(), bladeMaterial);
+            blade2.rotation.z = Math.PI / 2;
+            propeller.add(blade2);
+            
+            const blade3 = new THREE.Mesh(bladeGeometry.clone(), bladeMaterial);
+            blade3.rotation.z = Math.PI;
+            propeller.add(blade3);
+            
+            const blade4 = new THREE.Mesh(bladeGeometry.clone(), bladeMaterial);
+            blade4.rotation.z = 3 * Math.PI / 2;
+            propeller.add(blade4);
+            
+            propeller.position.z = 6.1;
+            airplane.add(propeller);
+            
+            // 바퀴 추가 (더 귀여운 바퀴)
+            createAirplaneWheels();
+            
+            // 비행기 크기 조정
+            airplane.scale.set(
+                airplaneState.scale, 
+                airplaneState.scale, 
+                airplaneState.scale
+            );
+            
+            // 비행기 초기 위치 설정
+            airplane.position.copy(airplaneState.position);
+            scene.add(airplane);
+        }
+        
+        // 비행기 바퀴 생성 (더 귀여운 바퀴)
+        function createAirplaneWheels() {
+            // 바퀴 재질
+            const wheelGeometry = new THREE.CylinderGeometry(1, 1, 0.5, 16);
+            const wheelMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x222222,
+                metalness: 0.5,
+                roughness: 0.7 
+            });
+            
+            // 바퀴 커버 재질
+            const wheelCoverGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.6, 16);
+            const wheelCoverMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFBBC05,  // 노란색
+                metalness: 0.3,
+                roughness: 0.5 
+            });
+            
+            // 메인 랜딩기어 (왼쪽, 오른쪽)
+            const createLandingGear = (posX) => {
+                const gear = new THREE.Group();
+                
+                // 랜딩기어 다리 (둥글게)
+                const legGeometry = new THREE.CylinderGeometry(0.3, 0.3, 4, 8);
+                const legMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x34A853,  // 녹색
+                    metalness: 0.3,
+                    roughness: 0.5
+                });
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.y = -2;
+                gear.add(leg);
+                
+                // 랜딩기어 바퀴
+                const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel.rotation.x = Math.PI / 2;
+                wheel.position.y = -4;
+                gear.add(wheel);
+                
+                // 바퀴 커버
+                const wheelCover = new THREE.Mesh(wheelCoverGeometry, wheelCoverMaterial);
+                wheelCover.rotation.x = Math.PI / 2;
+                wheelCover.position.y = -4;
+                wheelCover.position.z = 0.1;
+                gear.add(wheelCover);
+                
+                gear.position.x = posX;
+                gear.position.y = -1;
+                
+                return gear;
+            };
+            
+            // 왼쪽 랜딩기어
+            const leftGear = createLandingGear(-3);
+            airplane.add(leftGear);
+            
+            // 오른쪽 랜딩기어
+            const rightGear = createLandingGear(3);
+            airplane.add(rightGear);
+            
+            // 앞쪽 바퀴
+            const frontGear = new THREE.Group();
+            
+            // 앞쪽 다리
+            const frontLegGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 8);
+            const frontLeg = new THREE.Mesh(frontLegGeometry, new THREE.MeshStandardMaterial({ 
+                color: 0x34A853,  // 녹색
+                metalness: 0.3,
+                roughness: 0.5
+            }));
+            frontLeg.position.y = -1.5;
+            frontGear.add(frontLeg);
+            
+            // 앞쪽 바퀴
+            const frontWheel = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.7, 0.7, 0.4, 16),
+                wheelMaterial
+            );
+            frontWheel.rotation.x = Math.PI / 2;
+            frontWheel.position.y = -3;
+            frontGear.add(frontWheel);
+            
+            // 앞쪽 바퀴 커버
+            const frontWheelCover = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.5, 0.5, 0.5, 16),
+                wheelCoverMaterial
+            );
+            frontWheelCover.rotation.x = Math.PI / 2;
+            frontWheelCover.position.y = -3;
+            frontWheelCover.position.z = 0.1;
+            frontGear.add(frontWheelCover);
+            
+            frontGear.position.z = 4;
+            frontGear.position.y = -1;
+            
+            airplane.add(frontGear);
+        }
+        
+        // 장애물 생성 (더 많은 장애물)
+        function createObstacles() {
+            // 30개의 링 장애물 생성
+            for (let i = 0; i < 30; i++) {
+                // 링 지오메트리 (더 둥글게)
+                const ringGeometry = new THREE.TorusGeometry(20, 3, 16, 32);
+                const ringMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xFBBC05,  // 노란색
+                    emissive: 0x444400,
+                    metalness: 0.3,
+                    roughness: 0.7
+                });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                
+                // 링 위치 설정 (활주로 영역 피하기)
+                let validPosition = false;
+                let x, y, z;
+                
+                while (!validPosition) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 500 + Math.random() * 3000;
+                    
+                    x = Math.cos(angle) * dist;
+                    z = Math.sin(angle) * dist;
+                    y = 200 + Math.random() * 500;
+                    
+                    // 활주로 영역 피하기
+                    if (Math.abs(x) > 300 || Math.abs(z) > 1200) {
+                        validPosition = true;
+                    }
+                }
+                
+                ring.position.set(x, y, z);
+                
+                // 링 방향 랜덤화
+                ring.rotation.x = Math.random() * Math.PI / 2;
+                ring.rotation.y = Math.random() * Math.PI * 2;
+                
+                ring.castShadow = true;
+                scene.add(ring);
+                
+                // 장애물 정보 저장
+                obstacles.push({
+                    mesh: ring,
+                    passed: false
+                });
+            }
+        }
+        
+        // 구름 생성 (더 많은 더 다양한 구름)
+        function createClouds() {
+            // 50개의 구름 생성
+            for (let i = 0; i < 50; i++) {
+                // 구름 그룹
+                const cloud = new THREE.Group();
+                
+                // 구름 덩어리 크기 (다양한 크기)
+                const cloudSize = 30 + Math.random() * 100;
+                // 구름 높이 (다양한 높이)
+                const cloudHeight = 200 + Math.random() * 1000;
+                
+                // 여러 구름 덩어리로 구성
+                const numBlobs = 5 + Math.floor(Math.random() * 8);
+                
+                for (let j = 0; j < numBlobs; j++) {
+                    const blobGeometry = new THREE.SphereGeometry(cloudSize / 2, 8, 8);
+                    const blobMaterial = new THREE.MeshStandardMaterial({
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.8 + Math.random() * 0.2,
+                        roughness: 1
+                    });
+                    
+                    const blob = new THREE.Mesh(blobGeometry, blobMaterial);
+                    blob.position.x = (Math.random() - 0.5) * cloudSize;
+                    blob.position.y = (Math.random() - 0.5) * cloudSize / 2;
+                    blob.position.z = (Math.random() - 0.5) * cloudSize;
+                    
+                    // 구름 덩어리 크기 변형
+                    blob.scale.set(
+                        0.5 + Math.random(),
+                        0.3 + Math.random() * 0.7,
+                        0.5 + Math.random()
+                    );
+                    
+                    cloud.add(blob);
+                }
+                
+                // 구름 위치 설정 (넓은 영역에 분포)
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 500 + Math.random() * 10000;
+                
+                cloud.position.x = Math.cos(angle) * dist;
+                cloud.position.z = Math.sin(angle) * dist;
+                cloud.position.y = cloudHeight;
+                
+                scene.add(cloud);
+                clouds.push(cloud);
+            }
+        }
+        
+        // 창 크기 변경 처리
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // 키 다운 이벤트
+        function onKeyDown(event) {
+            switch(event.key.toLowerCase()) {
+                case 'w': keys.w = true; break;
+                case 'a': keys.a = true; break;
+                case 's': keys.s = true; break;
+                case 'd': keys.d = true; break;
+                case ' ': keys.space = true; break;
+                case 'b': keys.b = true; break;
+                case 'l': 
+                    // L 키를 누를 때 방향 고정 모드 전환
+                    if (!keys.l) {
+                        if (airplaneState.flightMode === flightModes.FREE) {
+                            setFlightMode(flightModes.FIXED);
+                        } else {
+                            setFlightMode(flightModes.FREE);
+                        }
+                    }
+                    keys.l = true; 
+                    break;
+            }
+            
+            // 키 입력 시간 기록 (방향 고정 모드에서 사용)
+            airplaneState.lastInputTime = Date.now();
+        }
+        
+        // 키 업 이벤트
+        function onKeyUp(event) {
+            switch(event.key.toLowerCase()) {
+                case 'w': keys.w = false; break;
+                case 'a': keys.a = false; break;
+                case 's': keys.s = false; break;
+                case 'd': keys.d = false; break;
+                case ' ': keys.space = false; break;
+                case 'b': keys.b = false; break;
+                case 'l': keys.l = false; break;
+            }
+        }
+        
+        // 비행기 조종 업데이트
+        function updateAirplane() {
+            const deltaTime = clock.getDelta();
+            
+            // 비행 모드에 따라 다른 업데이트 함수 호출
+            if (airplaneState.onGround) {
+                // 지상 모드
+                updateGroundMovement(deltaTime);
+            } else if (airplaneState.flightMode === flightModes.FREE) {
+                // 자유 비행 모드
+                updateFreeFlightMovement(deltaTime);
+            } else if (airplaneState.flightMode === flightModes.FIXED) {
+                // 방향 고정 모드
+                updateFixedDirectionMovement(deltaTime);
+            } else if (airplaneState.flightMode === flightModes.AUTOPILOT) {
+                // 자동 착륙 모드
+                updateAutopilotMovement(deltaTime);
+            }
+            
+            // 착륙 및 이륙 확인
+            checkLandingAndTakeoff();
+            
+            // 프로펠러 회전
+            propeller.rotation.z += airplaneState.speed * deltaTime * 0.3;
+            
+            // 대시보드 업데이트
+            updateDashboard();
+            
+            // 착륙 정보 업데이트
+            updateLandingInfo();
+            
+            // 미니맵 업데이트
+            updateMinimap();
+        }
+        
+        // 자유 비행 모드 업데이트
+        function updateFreeFlightMovement(deltaTime) {
+            // 피치 제어 (W/S)
+            const pitchRate = 0.7;  // 더 민감하게
+            if (keys.w) {
+                airplaneState.pitch = Math.min(airplaneState.pitch + pitchRate, 45);
+            } else if (keys.s) {
+                airplaneState.pitch = Math.max(airplaneState.pitch - pitchRate, -45);
+            } else {
+                // 피치 회복 (더 부드럽게)
+                if (Math.abs(airplaneState.pitch) < pitchRate) {
+                    airplaneState.pitch = 0;
+                } else {
+                    airplaneState.pitch *= 0.95;
+                }
+            }
+            
+            // 롤 제어 (A/D)
+            const rollRate = 1.0;  // 더 민감하게
+            if (keys.a) {
+                airplaneState.roll = Math.min(airplaneState.roll + rollRate, 60);
+            } else if (keys.d) {
+                airplaneState.roll = Math.max(airplaneState.roll - rollRate, -60);
+            } else {
+                // 롤 회복 (더 부드럽게)
+                if (Math.abs(airplaneState.roll) < rollRate) {
+                    airplaneState.roll = 0;
+                } else {
+                    airplaneState.roll *= 0.92;
+                }
+            }
+            
+            // 요(yaw) 업데이트 - 롤과 연계
+            airplaneState.yaw += airplaneState.roll * 0.01;
+            
+            // 속도 제어 (스페이스바)
+            const acceleration = keys.space ? 2 : -0.5;
+            airplaneState.speed = Math.max(100, Math.min(airplaneState.speed + acceleration, 200));
+            
+            // 방향 벡터 계산
+            const forwardVector = new THREE.Vector3(0, 0, 1);
+            
+            // 요(yaw) 회전
+            const yawRadians = airplaneState.yaw * Math.PI / 180;
+            forwardVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRadians);
+            
+            // 피치 회전
+            const pitchRadians = airplaneState.pitch * Math.PI / 180;
+            const rightVector = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRadians);
+            forwardVector.applyAxisAngle(rightVector, -pitchRadians);
+            
+            // 위치 업데이트
+            airplaneState.position.addScaledVector(forwardVector, airplaneState.speed * deltaTime * 0.5);
+            
+            // 비행기 모델 업데이트
+            airplane.position.copy(airplaneState.position);
+            
+            // 비행기 회전 업데이트
+            airplane.rotation.set(0, 0, 0);
+            airplane.rotateY(yawRadians);
+            airplane.rotateX(-pitchRadians);
+            airplane.rotateZ(airplaneState.roll * Math.PI / 180);
+        }
+        
+        // 방향 고정 모드 업데이트
+        function updateFixedDirectionMovement(deltaTime) {
+            const now = Date.now();
+            const inputDelay = 500; // 마지막 입력 후 0.5초 동안 조종 허용
+            const isRecentInput = (now - airplaneState.lastInputTime) < inputDelay;
+            
+            // 피치 제어 (W/S)
+            const pitchRate = 0.7;
+            if (keys.w) {
+                // 조종 입력 시 목표 피치 업데이트
+                airplaneState.targetPitch = Math.min(airplaneState.targetPitch + pitchRate, 45);
+                airplaneState.pitch = airplaneState.targetPitch;
+            } else if (keys.s) {
+                // 조종 입력 시 목표 피치 업데이트
+                airplaneState.targetPitch = Math.max(airplaneState.targetPitch - pitchRate, -45);
+                airplaneState.pitch = airplaneState.targetPitch;
+            } else if (!isRecentInput) {
+                // 입력이 없으면 목표 피치로 부드럽게 전환
+                airplaneState.pitch = airplaneState.targetPitch;
+            }
+            
+            // 롤 제어 (A/D)
+            const rollRate = 1.0;
+            if (keys.a) {
+                // 조종 입력 시 목표 롤 업데이트
+                airplaneState.targetRoll = Math.min(airplaneState.targetRoll + rollRate, 60);
+                airplaneState.roll = airplaneState.targetRoll;
+            } else if (keys.d) {
+                // 조종 입력 시 목표 롤 업데이트
+                airplaneState.targetRoll = Math.max(airplaneState.targetRoll - rollRate, -60);
+                airplaneState.roll = airplaneState.targetRoll;
+            } else if (!isRecentInput) {
+                // 입력이 없으면 목표 롤로 부드럽게 전환
+                airplaneState.roll = airplaneState.targetRoll;
+            }
+            
+            // 요(yaw) 업데이트 - 롤에 따라 자동 계산
+            airplaneState.yaw += airplaneState.roll * 0.01;
+            
+            // 속도 제어 (스페이스바)
+            const acceleration = keys.space ? 2 : -0.5;
+            airplaneState.speed = Math.max(100, Math.min(airplaneState.speed + acceleration, 200));
+            
+            // 방향 벡터 계산
+            const forwardVector = new THREE.Vector3(0, 0, 1);
+            
+            // 요(yaw) 회전
+            const yawRadians = airplaneState.yaw * Math.PI / 180;
+            forwardVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRadians);
+            
+            // 피치 회전
+            const pitchRadians = airplaneState.pitch * Math.PI / 180;
+            const rightVector = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRadians);
+            forwardVector.applyAxisAngle(rightVector, -pitchRadians);
+            
+            // 위치 업데이트
+            airplaneState.position.addScaledVector(forwardVector, airplaneState.speed * deltaTime * 0.5);
+            
+            // 비행기 모델 업데이트
+            airplane.position.copy(airplaneState.position);
+            
+            // 비행기 회전 업데이트
+            airplane.rotation.set(0, 0, 0);
+            airplane.rotateY(yawRadians);
+            airplane.rotateX(-pitchRadians);
+            airplane.rotateZ(airplaneState.roll * Math.PI / 180);
+        }
+        
+        // 자동 착륙 모드 업데이트
+        function updateAutopilotMovement(deltaTime) {
+            // 활주로 정보
+            const runwayLength = 2000;
+            const runwayWidth = 50;
+            
+            // 활주로까지의 벡터 계산
+            const toRunway = new THREE.Vector3(0, 0, 0).sub(airplaneState.position);
+            toRunway.y = 0; // 수평 거리만 고려
+            const distanceToRunway = toRunway.length();
+            
+            // 목표 고도 계산 (활주로에 가까워질수록 낮아짐)
+            let targetAltitude;
+            if (distanceToRunway > 2000) {
+                targetAltitude = 300;
+            } else {
+                // 착륙 경로: 2km 지점에서 300m 고도, 착륙 지점에서 0m 고도
+                targetAltitude = (distanceToRunway / 2000) * 300;
+            }
+            
+            // 현재 고도
+            const currentAltitude = airplaneState.position.y;
+            
+            // 고도 오차에 따른 피치 조정
+            const altitudeError = targetAltitude - currentAltitude;
+            airplaneState.targetPitch = Math.max(-20, Math.min(20, altitudeError * 0.2));
+            
+            // 부드러운 피치 전환
+            airplaneState.pitch = THREE.MathUtils.lerp(airplaneState.pitch, airplaneState.targetPitch, 0.05);
+            
+            // 활주로 방향으로 회전 (yaw 조정)
+            if (distanceToRunway > 10) {
+                // 활주로 방향으로의 각도 계산
+                const targetYaw = Math.atan2(-airplaneState.position.x, -airplaneState.position.z) * 180 / Math.PI;
+                
+                // 부드러운 요 전환
+                const yawDiff = targetYaw - airplaneState.yaw;
+                // 각도 차이를 -180~180 범위로 정규화
+                let normalizedYawDiff = yawDiff;
+                while (normalizedYawDiff > 180) normalizedYawDiff -= 360;
+                while (normalizedYawDiff < -180) normalizedYawDiff += 360;
+                
+                // 요 변화율은 거리에 반비례 (가까울수록 빠르게 조정)
+                const yawRate = Math.min(2, 1000 / distanceToRunway);
+                airplaneState.yaw += normalizedYawDiff * 0.03 * yawRate;
+            }
+            
+            // 롤 조정 (활주로 정렬을 위한 뱅킹)
+            if (Math.abs(airplaneState.position.x) > 5 && distanceToRunway > 200) {
+                // 활주로 중심으로 정렬하기 위한 롤 계산
+                airplaneState.targetRoll = -airplaneState.position.x * 0.1;
+                airplaneState.targetRoll = Math.max(-30, Math.min(30, airplaneState.targetRoll));
+            } else {
+                // 활주로에 가까워지면 롤 복구
+                airplaneState.targetRoll = 0;
+            }
+            
+            // 부드러운 롤 전환
+            airplaneState.roll = THREE.MathUtils.lerp(airplaneState.roll, airplaneState.targetRoll, 0.05);
+            
+            // 속도 조정 (거리에 따라)
+            let targetSpeed;
+            if (distanceToRunway > 2000) {
+                targetSpeed = 180;
+            } else if (distanceToRunway > 1000) {
+                targetSpeed = 150;
+            } else if (distanceToRunway > 500) {
+                targetSpeed = 130;
+            } else {
+                targetSpeed = 110;
+            }
+            
+            // 부드러운 속도 전환
+            if (airplaneState.speed < targetSpeed) {
+                airplaneState.speed = Math.min(airplaneState.speed + 0.5, targetSpeed);
+            } else {
+                airplaneState.speed = Math.max(airplaneState.speed - 0.5, targetSpeed);
+            }
+            
+            // 방향 벡터 계산
+            const forwardVector = new THREE.Vector3(0, 0, 1);
+            
+            // 요(yaw) 회전
+            const yawRadians = airplaneState.yaw * Math.PI / 180;
+            forwardVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRadians);
+            
+            // 피치 회전
+            const pitchRadians = airplaneState.pitch * Math.PI / 180;
+            const rightVector = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRadians);
+            forwardVector.applyAxisAngle(rightVector, -pitchRadians);
+            
+            // 위치 업데이트
+            airplaneState.position.addScaledVector(forwardVector, airplaneState.speed * deltaTime * 0.5);
+            
+            // 비행기 모델 업데이트
+            airplane.position.copy(airplaneState.position);
+            
+            // 비행기 회전 업데이트
+            airplane.rotation.set(0, 0, 0);
+            airplane.rotateY(yawRadians);
+            airplane.rotateX(-pitchRadians);
+            airplane.rotateZ(airplaneState.roll * Math.PI / 180);
+        }
+        
+        // 지상 이동 업데이트
+                // 지상 이동 업데이트
+                function updateGroundMovement(deltaTime) {
+            // 지상에서는 롤이 없고 피치가 제한됨
+            airplaneState.roll = 0;
+            
+            // 지상 속도 계산 (브레이크 적용)
+            if (keys.b) {
+                // 브레이크 적용 시 감속
+                landingState.brakesApplied = true;
+                airplaneState.speed = Math.max(0, airplaneState.speed - 15 * deltaTime);
+            } else {
+                landingState.brakesApplied = false;
+                // 스페이스바로 가속
+                if (keys.space) {
+                    airplaneState.speed = Math.min(airplaneState.speed + 8 * deltaTime, 60);  // 더 빠른 가속
+                } else {
+                    // 자연 감속
+                    airplaneState.speed = Math.max(0, airplaneState.speed - 2 * deltaTime);
+                }
+            }
+            
+            // 피치 제어 (이륙 준비)
+            if (keys.w && airplaneState.speed > 40) {
+                airplaneState.pitch = Math.min(airplaneState.pitch + 0.5, 15);  // 더 빠른 피치 업
+            } else {
+                airplaneState.pitch = Math.max(airplaneState.pitch - 0.5, 0);
+            }
+            
+            // 방향 전환 (지상에서는 느리게)
+            if (keys.a) {
+                airplaneState.yaw += 0.5 * (airplaneState.speed / 20);  // 더 빠른 회전
+            } else if (keys.d) {
+                airplaneState.yaw -= 0.5 * (airplaneState.speed / 20);  // 더 빠른 회전
+            }
+            
+            // 방향 벡터 계산 (지상에서는 수평 이동만)
+            const forwardVector = new THREE.Vector3(0, 0, 1);
+            const yawRadians = airplaneState.yaw * Math.PI / 180;
+            forwardVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRadians);
+            
+            // 위치 업데이트 (y 좌표는 고정, 다만 약간의 변화는 허용)
+            const oldY = airplaneState.position.y;
+            airplaneState.position.addScaledVector(forwardVector, airplaneState.speed * deltaTime * 0.5);
+            
+            // 지면을 따라가도록 y 좌표 조정
+            if (!airplaneState.taxiing) {
+                airplaneState.position.y = oldY;
+            }
+            
+            // 비행기 모델 업데이트
+            airplane.position.copy(airplaneState.position);
+            
+            // 비행기 회전 업데이트 (지상에서는 롤 없음)
+            airplane.rotation.set(0, 0, 0);
+            airplane.rotateY(yawRadians);
+            airplane.rotateX(-airplaneState.pitch * Math.PI / 180);
+            
+            // 착륙 후 이동 거리 계산
+            landingState.distanceTraveled += airplaneState.speed * deltaTime * 0.5;
+            
+            // 지상 속도 저장
+            landingState.groundSpeed = airplaneState.speed;
+            
+            // 이륙 확인 (더 쉬운 이륙)
+            if (airplaneState.pitch > 8 && airplaneState.speed > 40) {
+                // 이륙 조건 충족
+                airplaneState.onGround = false;
+                airplaneState.taxiing = false;
+                landingState.isLanded = false;
+                
+                // 이륙 메시지 표시
+                showMessage("이륙 성공!", 3000);
+                
+                // 방향 고정 모드로 전환 (이륙 시)
+                if (airplaneState.flightMode === flightModes.AUTOPILOT) {
+                    setFlightMode(flightModes.FREE);
+                }
+            }
+        }
+        
+        // 착륙 및 이륙 확인
+        function checkLandingAndTakeoff() {
+            // 비행 중일 때만 착륙 확인
+            if (!airplaneState.onGround) {
+                // 지면과의 거리 계산
+                const groundHeight = 1; // 활주로 높이
+                const altitude = airplaneState.position.y - groundHeight;
+                
+                // 활주로 위치에 있는지 확인
+                const runwayLength = 2000;
+                const runwayWidth = 50;
+                const isOverRunway = 
+                    Math.abs(airplaneState.position.x) < runwayWidth / 2 && 
+                    Math.abs(airplaneState.position.z) < runwayLength / 2;
+                
+                // 착륙 가능 확인 (낮은 고도, 낮은 피치, 적절한 속도)
+                if (altitude < 5 && isOverRunway) {
+                    // 착륙 조건 확인
+                    const landingSpeed = airplaneState.speed;
+                    const pitchAngle = Math.abs(airplaneState.pitch);
+                    const rollAngle = Math.abs(airplaneState.roll);
+                    
+                    // 착륙 품질 결정 (더 관대한 조건)
+                    let quality;
+                    if (landingSpeed < 130 && pitchAngle < 8 && rollAngle < 8) {
+                        quality = "완벽한 착륙!";
+                    } else if (landingSpeed < 160 && pitchAngle < 15 && rollAngle < 15) {
+                        quality = "좋은 착륙";
+                    } else if (landingSpeed < 190 && pitchAngle < 20 && rollAngle < 20) {
+                        quality = "괜찮은 착륙";
+                    } else {
+                        quality = "거친 착륙!";
+                    }
+                    
+                    // 착륙 처리
+                    airplaneState.onGround = true;
+                    airplaneState.taxiing = true;
+                    landingState.isLanded = true;
+                    landingState.touchdownSpeed = landingSpeed;
+                    landingState.touchdownPitch = pitchAngle;
+                    landingState.touchdownRoll = rollAngle;
+                    landingState.landingQuality = quality;
+                    landingState.distanceTraveled = 0;
+                    
+                    // 착륙 직후 속도 설정
+                    airplaneState.speed = landingSpeed * 0.6;  // 더 많은 감속
+                    
+                    // 착륙 메시지 표시
+                    showMessage(quality, 5000);
+                    
+                    // 착륙 시 비행 모드 변경
+                    if (airplaneState.flightMode === flightModes.AUTOPILOT) {
+                        setFlightMode(flightModes.FREE);
+                    }
+                    
+                    console.log("착륙 완료:", quality);
+                    console.log("착륙 속도:", landingSpeed);
+                    console.log("피치 각도:", pitchAngle);
+                    console.log("롤 각도:", rollAngle);
+                }
+            }
+        }
+        
+        // 메시지 표시
+        function showMessage(text, duration = 3000) {
+            const messageElement = document.getElementById('message');
+            messageElement.textContent = text;
+            messageElement.style.opacity = '1';
+            
+            setTimeout(() => {
+                messageElement.style.opacity = '0';
+            }, duration);
+        }
+        
+        // 미니맵 업데이트
+        function updateMinimap() {
+            minimapCamera.position.x = airplaneState.position.x;
+            minimapCamera.position.z = airplaneState.position.z;
+            minimapCamera.lookAt(airplaneState.position.x, 0, airplaneState.position.z);
+            minimapRenderer.render(scene, minimapCamera);
+        }
+        
+        // 대시보드 업데이트
+        function updateDashboard() {
+            document.getElementById('speed').textContent = Math.round(airplaneState.speed);
+            document.getElementById('altitude').textContent = Math.round(airplaneState.position.y);
+            document.getElementById('pitch').textContent = Math.round(airplaneState.pitch);
+            document.getElementById('roll').textContent = Math.round(airplaneState.roll);
+            document.getElementById('score').textContent = score;
+            
+            // 비행 모드 표시
+            let modeText = "";
+            if (airplaneState.flightMode === flightModes.FREE) {
+                modeText = "자유 비행";
+            } else if (airplaneState.flightMode === flightModes.FIXED) {
+                modeText = "방향 고정";
+            } else if (airplaneState.flightMode === flightModes.AUTOPILOT) {
+                modeText = "자동 착륙";
+            }
+            
+            // 착륙 상태 표시
+            const landingStatus = document.getElementById('landing-status');
+            if (landingState.isLanded) {
+                if (landingState.brakesApplied) {
+                    landingStatus.textContent = "브레이크 적용 중 - " + modeText;
+                    landingStatus.style.color = "#ff5555";
+                } else if (airplaneState.speed > 30) {
+                    landingStatus.textContent = "착륙 완료 - 감속 중 - " + modeText;
+                    landingStatus.style.color = "#ffff55";
+                } else {
+                    landingStatus.textContent = "이륙 준비 가능 - " + modeText;
+                    landingStatus.style.color = "#55ff55";
+                }
+            } else {
+                landingStatus.textContent = modeText;
+                landingStatus.style.color = "#ffffff";
+            }
+        }
+        
+        // 착륙 정보 업데이트
+        function updateLandingInfo() {
+            // 활주로까지의 거리 계산
+            const distanceToRunway = Math.sqrt(
+                airplaneState.position.x * airplaneState.position.x + 
+                airplaneState.position.z * airplaneState.position.z
+            );
+            
+            // 활주로 방향과의 정렬 (x 좌표)
+            const runwayAlignment = Math.abs(airplaneState.position.x);
+            
+            // 정보 업데이트
+            document.getElementById('runway-distance').textContent = Math.round(distanceToRunway);
+            
+            // 착륙 속도 표시 및 색상
+            const landingSpeedElement = document.getElementById('landing-speed');
+            landingSpeedElement.textContent = Math.round(airplaneState.speed);
+            
+            if (airplaneState.speed < 130) {
+                landingSpeedElement.className = 'landing-good';
+            } else if (airplaneState.speed < 170) {
+                landingSpeedElement.className = 'landing-warning';
+            } else {
+                landingSpeedElement.className = 'landing-danger';
+            }
+            
+            // 착륙 각도 표시 및 색상
+            const landingAngleElement = document.getElementById('landing-angle');
+            const combinedAngle = Math.abs(airplaneState.pitch) + Math.abs(airplaneState.roll) / 2;
+            landingAngleElement.textContent = Math.round(combinedAngle);
+            
+            if (combinedAngle < 8) {
+                landingAngleElement.className = 'landing-good';
+            } else if (combinedAngle < 20) {
+                landingAngleElement.className = 'landing-warning';
+            } else {
+                landingAngleElement.className = 'landing-danger';
+            }
+            
+            // 활주로 정렬 표시 및 색상
+            const alignmentElement = document.getElementById('runway-alignment');
+            
+            if (runwayAlignment < 15) {
+                alignmentElement.textContent = '우수';
+                alignmentElement.className = 'landing-good';
+            } else if (runwayAlignment < 30) {
+                alignmentElement.textContent = '적절';
+                alignmentElement.className = 'landing-warning';
+            } else {
+                alignmentElement.textContent = '나쁨';
+                alignmentElement.className = 'landing-danger';
+            }
+        }
+        
+        // 카메라 업데이트
+        function updateCamera() {
+            // 비행기 뒤에서 따라가는 카메라 (더 가깝게)
+            const cameraOffset = new THREE.Vector3(0, 8, -25);
+            
+            // 비행기 회전에 따라 카메라 위치 계산
+            cameraOffset.applyQuaternion(airplane.quaternion);
+            camera.position.copy(airplaneState.position).add(cameraOffset);
+            
+            // 카메라가 비행기를 보도록 설정
+            const lookOffset = new THREE.Vector3(0, 0, 30);
+            lookOffset.applyQuaternion(airplane.quaternion);
+            camera.lookAt(airplaneState.position.clone().add(lookOffset));
+        }
+        
+        // 장애물 통과 확인
+        function checkObstacles() {
+            const airplanePos = airplaneState.position;
+            
+            obstacles.forEach(obstacle => {
+                if (!obstacle.passed) {
+                    const ringPos = obstacle.mesh.position;
+                    const distance = airplanePos.distanceTo(ringPos);
+                    
+                    // 장애물과의 거리가 가까우면 통과 여부 확인
+                    if (distance < 30) {
+                        // 링의 중심에서 비행기까지의 로컬 벡터 계산
+                        const localVector = airplanePos.clone().sub(ringPos);
+                        localVector.applyQuaternion(obstacle.mesh.quaternion.clone().invert());
+                        
+                        // Z축 방향(링의 "구멍" 방향)으로 통과했는지 확인
+                        if (Math.abs(localVector.z) < 5 && 
+                            Math.sqrt(localVector.x * localVector.x + localVector.y * localVector.y) < 15) {
+                            // 링 통과!
+                            obstacle.passed = true;
+                            obstacle.mesh.material.color.set(0x34A853);  // 녹색으로 변경
+                            obstacle.mesh.material.emissive.set(0x003300);
+                            score++;
+                            
+                            // 점수 팝업 표시
+                            const scorePopup = document.getElementById('score-popup');
+                            scorePopup.style.opacity = '1';
+                            scorePopup.style.transform = 'translate(-50%, -100%)';
+                            
+                            setTimeout(() => {
+                                scorePopup.style.opacity = '0';
+                                scorePopup.style.transform = 'translate(-50%, -50%)';
+                            }, 1000);
+                        }
+                    }
+                }
+                
+                // 새로운 위치로 재배치 (멀리 있는 장애물)
+                if (airplanePos.distanceTo(obstacle.mesh.position) > 5000) {
+                    // 비행기 앞쪽에 새로 배치
+                    const forwardVector = new THREE.Vector3(0, 0, 1).applyQuaternion(airplane.quaternion);
+                    const angle = Math.random() * Math.PI / 2 - Math.PI / 4; // +- 45도
+                    const rotationAxis = new THREE.Vector3(0, 1, 0);
+                    
+                    forwardVector.applyAxisAngle(rotationAxis, angle);
+                    
+                    const newPosition = airplanePos.clone().addScaledVector(forwardVector, 2000 + Math.random() * 1000);
+                    newPosition.y = 200 + Math.random() * 500;
+                    
+                    obstacle.mesh.position.copy(newPosition);
+                    obstacle.mesh.rotation.x = Math.random() * Math.PI / 2;
+                    obstacle.mesh.rotation.y = Math.random() * Math.PI * 2;
+                    
+                    obstacle.passed = false;
+                    obstacle.mesh.material.color.set(0xFBBC05);  // 노란색으로 초기화
+                    obstacle.mesh.material.emissive.set(0x444400);
+                }
+            });
+            
+            // 구름 관리
+            clouds.forEach(cloud => {
+                if (airplanePos.distanceTo(cloud.position) > 10000) {
+                    // 구름 재배치
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = 2000 + Math.random() * 3000;
+                    const height = 200 + Math.random() * 1000;
+                    
+                    cloud.position.x = airplanePos.x + Math.cos(angle) * distance;
+                    cloud.position.z = airplanePos.z + Math.sin(angle) * distance;
+                    cloud.position.y = height;
+                }
+            });
+        }
+        
+        // 애니메이션 루프
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            updateAirplane();
+            updateCamera();
+            checkObstacles();
+            
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
